@@ -1,24 +1,22 @@
-let isEnabled = false;
+let isEnabled = false; // 1. 수정 포인트: 기본값 OFF
 let targetLoops = 1;
 let currentLoop = 0;
 let currentVideoSrc = "";
 
 // 초기 설정 로드
 chrome.storage.local.get(['isEnabled', 'targetLoops'], (result) => {
-    isEnabled = result.isEnabled !== false;
+    // 저장된 값이 없으면 false(OFF), 있으면 그 값 사용
+    isEnabled = result.isEnabled === true;
     targetLoops = result.targetLoops || 1;
 });
 
-// 설정 변경 감지 (팝업에서 변경 시 즉시 반영)
 chrome.storage.onChanged.addListener((changes) => {
     if (changes.isEnabled) isEnabled = changes.isEnabled.newValue;
     if (changes.targetLoops) targetLoops = changes.targetLoops.newValue;
 });
 
-// 다음 영상으로 이동하는 함수 (아래 방향키 이벤트 시뮬레이션)
 function skipToNextShort() {
     console.log("Skipping to next short...");
-    // YouTube Shorts는 키보드 이벤트를 통해 넘기는 것이 가장 안정적입니다.
     const event = new KeyboardEvent('keydown', {
         key: 'ArrowDown',
         code: 'ArrowDown',
@@ -29,15 +27,11 @@ function skipToNextShort() {
     document.body.dispatchEvent(event);
 }
 
-// 비디오 상태 모니터링
 function monitorVideo() {
-    // 현재 화면에 보이는 활성 비디오 찾기
-    // YouTube는 여러 video 태그를 미리 로드하므로, 현재 재생 중인 것을 찾아야 함
     const videos = document.querySelectorAll('video');
     let activeVideo = null;
 
     for (let video of videos) {
-        // paused가 아니고, src가 있으며, 화면에 보이는 비디오
         if (!video.paused && video.src && video.checkVisibility()) {
             activeVideo = video;
             break;
@@ -46,15 +40,16 @@ function monitorVideo() {
 
     if (!activeVideo) return;
 
-    // 사용자가 직접 넘겨서 비디오가 바뀐 경우 리셋 로직
     if (currentVideoSrc !== activeVideo.src) {
         currentVideoSrc = activeVideo.src;
-        currentLoop = 0; // 새 영상이므로 카운트 리셋
-        console.log("New video detected. Counter reset.");
+        currentLoop = 0;
 
-        // 비디오 루프 감지를 위한 이벤트 리스너 부착
-        // 주의: 기존 리스너가 중복되지 않도록 'ontimeupdate' 프로퍼티를 사용하거나 플래그 관리
-        // 여기서는 간단하게 timeupdate 이벤트 내에서 로직 처리
+        // 새 영상 로드 시 lastTime 초기화 (undefined 방지)
+        activeVideo.lastTime = activeVideo.currentTime;
+
+        // 이벤트 리스너 중복 방지를 위해 기존 핸들러 제거 후 재등록 방식 대신
+        // video 태그 자체가 재활용되는 경우가 많으므로 속성으로 핸들러가 붙어있는지 체크하거나
+        // 간단히 덮어쓰기 (activeVideo.ontimeupdate) 방식을 유지
         activeVideo.ontimeupdate = handleTimeUpdate;
     }
 }
@@ -66,29 +61,30 @@ function handleTimeUpdate(e) {
     const currentTime = video.currentTime;
     const duration = video.duration;
 
-    // 비디오가 끝났거나(드물게 발생), 거의 끝에서 처음으로 돌아갔을 때 (루프 감지)
-    // 쇼츠는 보통 끝나자마자 0초로 돌아가서 다시 재생됩니다.
-    // 1. duration과 매우 가까움 (끝남 감지 보조)
-    // 2. 갑자기 시간이 0.5초 미만으로 줄어들었으며, 이전 시간이 비디오 길이의 절반 이상이었을 때 (루프)
+    if (!duration) return; // duration이 NaN일 경우 방지
 
-    // 마지막 시간을 기록하기 위해 video 객체에 커스텀 속성 사용
-    if (!video.lastTime) video.lastTime = 0;
+    // 2. 수정 포인트: 루프 감지 로직 강화
+    // 조건 A: 현재 시간이 과거 시간보다 작아짐 (재생 위치가 뒤로 이동)
+    // 조건 B: 직전 시간(lastTime)이 영상의 90% 지점 이상이었어야 함 (끝보고 돌아감)
+    // 조건 C: 현재 시간(currentTime)이 1.5초 미만이어야 함 (처음으로 돌아감)
+    // -> 이 조건을 만족해야 사용자가 중간에서 조금 뒤로 감기한 것을 루프로 착각하지 않음
 
-    // 루프 감지 로직: 시간이 뒤로 갔는데(현재 < 이전), 그 차이가 크면 루프로 간주
-    if (currentTime < video.lastTime && video.lastTime > duration * 0.8) {
-        currentLoop++;
-        console.log(`Loop detected: ${currentLoop} / ${targetLoops}`);
+    if (currentTime < video.lastTime) {
+        const isNearEnd = video.lastTime > duration * 0.95; // 끝부분이었는가?
+        const isBackToStart = currentTime < 0.5;           // 시작점으로 갔는가?
 
-        // 설정한 횟수만큼 다 봤으면 넘기기
-        if (currentLoop >= targetLoops) {
-            skipToNextShort();
-            // 넘긴 후 중복 실행 방지를 위해 리스너 제거 또는 플래그 처리
-            video.ontimeupdate = null;
+        if (isNearEnd && isBackToStart) {
+            currentLoop++;
+            console.log(`Loop detected: ${currentLoop} / ${targetLoops}`);
+
+            if (currentLoop >= targetLoops) {
+                skipToNextShort();
+                video.ontimeupdate = null;
+            }
         }
     }
 
     video.lastTime = currentTime;
 }
 
-// 페이지 변화를 지속적으로 감지 (SPA 특성 대응)
 setInterval(monitorVideo, 1000);

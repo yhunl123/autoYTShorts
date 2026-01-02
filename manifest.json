@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube Shorts Auto Skipper",
-  "version": "1.0",
+  "version": "1.1",
   "description": "쇼츠 반복 재생 후 자동으로 다음 영상으로 넘깁니다.",
   "permissions": ["storage", "scripting"],
   "host_permissions": ["https://www.youtube.com/*"],
@@ -15,7 +15,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/shorts/*"],
+      "matches": ["https://www.youtube.com/*"],
       "js": ["content.js"],
       "run_at": "document_end"
     }

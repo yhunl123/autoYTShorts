@@ -1,5 +1,7 @@
 # YouTube Shorts Auto Skipper
 
+## AI 대화 전문 : https://gemini.google.com/share/842706520cd9
+
 YouTube Shorts를 시청할 때, 영상이 끝나거나 설정한 횟수만큼 반복된 후 자동으로 다음 영상으로 넘겨주는 크롬 확장 프로그램입니다.
 
 ## 📌 주요 기능
